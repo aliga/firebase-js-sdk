@@ -121,6 +121,8 @@ export interface Persistence {
    *
    * @param action A description of the action performed by this transaction,
    * used for logging.
+   * @param requirePrimaryLease Whether this transaction can only be executed
+   * from the primary tab.
    * @param transactionOperation The operation to run inside a transaction.
    * @return A promise that is resolved once the transaction completes.
    */

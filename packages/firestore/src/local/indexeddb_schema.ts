@@ -554,25 +554,29 @@ export class DbInstanceMetadata {
   /** Name of the IndexedDb object store. */
   static store = 'instanceMetadata';
 
-  /** Keys are automatically assigned via the userId and instanceKey properties. */
-  static keyPath = ['userId', 'instanceKey'];
+  /** Keys are automatically assigned via the instanceKey property. */
+  static key = 'instanceKey';
 
   constructor(
-    /** @param userId - The normalized user ID to which this batch belongs. */
-    public userId: string,
     /**
      * @param  instanceKey - The auto-generated instance key assigned at client
      * startup.
      */
     public instanceKey: string,
-    /** @param  updateTimeMs - The last time this state was updated. */
-    public updateTimeMs: DbTimestamp
+    /** @param  updateTimeMs - The last time this state was updated in Epoch milliseconds. */
+    public updateTimeMs: number,
+
+    public isInForeground: boolean,
   ) {}
 }
 
+
+/** Object keys in the 'instanceMetadata' store are [userId, instanceKey] paris. */
+export type DbInstanceMetadataKey = string;
+
 function createInstanceMetadataStore(db: IDBDatabase): void {
   db.createObjectStore(DbInstanceMetadata.store, {
-    keyPath: DbInstanceMetadata.keyPath as KeyPath
+    keyPath: DbInstanceMetadata.key as KeyPath
   });
 }
 
