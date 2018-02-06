@@ -420,10 +420,10 @@ describe('SimpleDb', () => {
     await db.runTransaction('readwrite', ['users', 'docs'], txn => {
       const docsStore = txn.store<string[], string>('docs');
       return PersistencePromise.waitFor(
-          keys.map(key => {
-            const value = 'doc ' + key.join('/');
-            return docsStore.put(key, value);
-          })
+        keys.map(key => {
+          const value = 'doc ' + key.join('/');
+          return docsStore.put(key, value);
+        })
       );
     });
 

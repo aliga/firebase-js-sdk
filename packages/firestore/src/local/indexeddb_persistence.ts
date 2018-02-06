@@ -34,7 +34,7 @@ import {
 } from './indexeddb_schema';
 import { LocalSerializer } from './local_serializer';
 import { MutationQueue } from './mutation_queue';
-import {Persistence, PersistenceTransaction} from './persistence';
+import { Persistence, PersistenceTransaction } from './persistence';
 import { PersistencePromise } from './persistence_promise';
 import { QueryCache } from './query_cache';
 import { RemoteDocumentCache } from './remote_document_cache';
@@ -165,9 +165,13 @@ export class IndexedDbPersistence implements Persistence {
     return new IndexedDbRemoteDocumentCache(this.serializer);
   }
 
-  runTransaction<T>(action: string,
-                    requirePrimaryLease: boolean,
-                    transactionOperation: (transaction: PersistenceTransaction) => PersistencePromise<T>): Promise<T> {
+  runTransaction<T>(
+    action: string,
+    requirePrimaryLease: boolean,
+    transactionOperation: (
+      transaction: PersistenceTransaction
+    ) => PersistencePromise<T>
+  ): Promise<T> {
     if (this.persistenceError) {
       return Promise.reject(this.persistenceError);
     }
@@ -215,17 +219,17 @@ export class IndexedDbPersistence implements Persistence {
    * promise.
    */
   private tryAcquirePrimaryLease(): Promise<boolean> {
-    return this.simpleDb.runTransaction('readwrite', [DbOwner.store],txn => {
+    return this.simpleDb.runTransaction('readwrite', [DbOwner.store], txn => {
       const store = txn.store<DbOwnerKey, DbOwner>(DbOwner.store);
       return store.get('owner').next(dbOwner => {
         if (!this.extractCurrentOwner(dbOwner)) {
           const newDbOwner = new DbOwner(this.ownerId, Date.now());
           log.debug(
-              LOG_TAG,
-              'No valid owner. Acquiring owner lease. Current owner:',
-              dbOwner,
-              'New owner:',
-              newDbOwner
+            LOG_TAG,
+            'No valid owner. Acquiring owner lease. Current owner:',
+            dbOwner,
+            'New owner:',
+            newDbOwner
           );
           return store.put('owner', newDbOwner).next(() => true);
         } else {
@@ -310,7 +314,6 @@ export class IndexedDbPersistence implements Persistence {
     // backed up for some reason.
     this.ownerLeaseRefreshHandle = setInterval(() => {
       if (this.tryAcquirePrimaryLease()) {
-
       }
     }, OWNER_LEASE_REFRESH_INTERVAL_MS);
   }

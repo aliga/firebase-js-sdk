@@ -72,9 +72,9 @@ describe('IndexedDbMutationQueue', () => {
     function loadNextBatchId(): Promise<BatchId> {
       return persistence.runTransaction('loadNextBatchIdFromDb', true, txn => {
         return IndexedDbMutationQueue.loadNextBatchIdFromDb(txn).next(
-            batchId => {
-              return batchId;
-            }
+          batchId => {
+            return batchId;
+          }
         );
       });
     }
@@ -83,11 +83,11 @@ describe('IndexedDbMutationQueue', () => {
       return persistence.runTransaction('addDummyBatch', true, transaction => {
         const txn = transaction as SimpleDbTransaction;
         const store = txn.store<[string, number], DbMutationBatch>(
-            DbMutationBatch.store
+          DbMutationBatch.store
         );
         const localWriteTime = Date.now();
         return store.put(
-            new DbMutationBatch(userId, batchId, localWriteTime, [])
+          new DbMutationBatch(userId, batchId, localWriteTime, [])
         );
       });
     }

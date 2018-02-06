@@ -32,7 +32,8 @@ export class TestQueryCache {
 
   start(): Promise<void> {
     return this.persistence.runTransaction('start', true, txn =>
-        this.cache.start(txn));
+      this.cache.start(txn)
+    );
   }
 
   addQueryData(queryData: QueryData): Promise<void> {
@@ -94,9 +95,13 @@ export class TestQueryCache {
   }
 
   removeMatchingKeysForTargetId(targetId: TargetId): Promise<void> {
-    return this.persistence.runTransaction('removeMatchingKeysForTargetId', true, txn => {
-      return this.cache.removeMatchingKeysForTargetId(txn, targetId);
-    });
+    return this.persistence.runTransaction(
+      'removeMatchingKeysForTargetId',
+      true,
+      txn => {
+        return this.cache.removeMatchingKeysForTargetId(txn, targetId);
+      }
+    );
   }
 
   containsKey(key: DocumentKey): Promise<boolean> {
@@ -106,6 +111,10 @@ export class TestQueryCache {
   }
 
   setLastRemoteSnapshotVersion(version: SnapshotVersion) {
-    return this.persistence.runTransaction('setLastRemoteSnapshotVersion', true, txn => this.cache.setLastRemoteSnapshotVersion(txn, version));
+    return this.persistence.runTransaction(
+      'setLastRemoteSnapshotVersion',
+      true,
+      txn => this.cache.setLastRemoteSnapshotVersion(txn, version)
+    );
   }
 }

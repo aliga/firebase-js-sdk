@@ -124,7 +124,11 @@ export interface Persistence {
    * @param transactionOperation The operation to run inside a transaction.
    * @return A promise that is resolved once the transaction completes.
    */
-  runTransaction<T>(action: string,
-                    requirePrimaryLease: boolean
-      , transactionOperation: (transaction: PersistenceTransaction) => PersistencePromise<T>): Promise<T>;
+  runTransaction<T>(
+    action: string,
+    requirePrimaryLease: boolean,
+    transactionOperation: (
+      transaction: PersistenceTransaction
+    ) => PersistencePromise<T>
+  ): Promise<T>;
 }

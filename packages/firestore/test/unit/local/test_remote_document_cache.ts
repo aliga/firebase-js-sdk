@@ -50,8 +50,12 @@ export class TestRemoteDocumentCache {
   }
 
   getDocumentsMatchingQuery(query: Query): Promise<DocumentMap> {
-    return this.persistence.runTransaction('getDocumentsMatchingQuery', true, txn => {
-      return this.cache.getDocumentsMatchingQuery(txn, query);
-    });
+    return this.persistence.runTransaction(
+      'getDocumentsMatchingQuery',
+      true,
+      txn => {
+        return this.cache.getDocumentsMatchingQuery(txn, query);
+      }
+    );
   }
 }
