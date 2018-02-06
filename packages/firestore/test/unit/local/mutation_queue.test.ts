@@ -70,24 +70,24 @@ describe('IndexedDbMutationQueue', () => {
 
   describe('loadNextBatchIdFromDb', () => {
     function loadNextBatchId(): Promise<BatchId> {
-      return persistence.runTransaction('loadNextBatchIdFromDb', txn => {
+      return persistence.runTransaction('loadNextBatchIdFromDb', true, txn => {
         return IndexedDbMutationQueue.loadNextBatchIdFromDb(txn).next(
-          batchId => {
-            return batchId;
-          }
+            batchId => {
+              return batchId;
+            }
         );
       });
     }
 
     function addDummyBatch(userId: string, batchId: BatchId): Promise<void> {
-      return persistence.runTransaction('addDummyBatch', transaction => {
+      return persistence.runTransaction('addDummyBatch', true, transaction => {
         const txn = transaction as SimpleDbTransaction;
         const store = txn.store<[string, number], DbMutationBatch>(
-          DbMutationBatch.store
+            DbMutationBatch.store
         );
         const localWriteTime = Date.now();
         return store.put(
-          new DbMutationBatch(userId, batchId, localWriteTime, [])
+            new DbMutationBatch(userId, batchId, localWriteTime, [])
         );
       });
     }

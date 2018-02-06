@@ -34,7 +34,7 @@ import {
 } from './indexeddb_schema';
 import { LocalSerializer } from './local_serializer';
 import { MutationQueue } from './mutation_queue';
-import { Persistence } from './persistence';
+import {Persistence, PersistenceTransaction} from './persistence';
 import { PersistencePromise } from './persistence_promise';
 import { QueryCache } from './query_cache';
 import { RemoteDocumentCache } from './remote_document_cache';
@@ -136,9 +136,9 @@ export class IndexedDbPersistence implements Persistence {
       .then(db => {
         this.simpleDb = db;
       })
-      .then(() => this.tryAcquireOwnerLease())
+      .then(() => this.tryAcquirePrimaryLease())
       .then(() => {
-        this.scheduleOwnerLeaseRefreshes();
+        this.schedulePrimaryLeaseRefresh();
         this.attachWindowUnloadHook();
       });
   }
@@ -165,10 +165,9 @@ export class IndexedDbPersistence implements Persistence {
     return new IndexedDbRemoteDocumentCache(this.serializer);
   }
 
-  runTransaction<T>(
-    action: string,
-    operation: (transaction: SimpleDbTransaction) => PersistencePromise<T>
-  ): Promise<T> {
+  runTransaction<T>(action: string,
+                    requirePrimaryLease: boolean,
+                    transactionOperation: (transaction: PersistenceTransaction) => PersistencePromise<T>): Promise<T> {
     if (this.persistenceError) {
       return Promise.reject(this.persistenceError);
     }
@@ -178,8 +177,12 @@ export class IndexedDbPersistence implements Persistence {
     // Do all transactions as readwrite against all object stores, since we
     // are the only reader/writer.
     return this.simpleDb.runTransaction('readwrite', ALL_STORES, txn => {
-      // Verify that we still have the owner lease as part of every transaction.
-      return this.ensureOwnerLease(txn).next(() => operation(txn));
+      if (requirePrimaryLease) {
+        // Verify that we still have the owner lease.
+        return this.ensureOwnerLease(txn).next(() => transactionOperation(txn));
+      } else {
+        return Promise.resolve();
+      }
     });
   }
 
@@ -211,33 +214,22 @@ export class IndexedDbPersistence implements Persistence {
    * Acquires the owner lease if there's no valid owner. Else returns a rejected
    * promise.
    */
-  private tryAcquireOwnerLease(): Promise<void> {
-    // NOTE: Don't use this.runTransaction, since it requires us to already
-    // have the lease.
-    return this.simpleDb.runTransaction('readwrite', [DbOwner.store], txn => {
+  private tryAcquirePrimaryLease(): Promise<boolean> {
+    return this.simpleDb.runTransaction('readwrite', [DbOwner.store],txn => {
       const store = txn.store<DbOwnerKey, DbOwner>(DbOwner.store);
       return store.get('owner').next(dbOwner => {
-        if (!this.validOwner(dbOwner)) {
+        if (!this.extractCurrentOwner(dbOwner)) {
           const newDbOwner = new DbOwner(this.ownerId, Date.now());
           log.debug(
-            LOG_TAG,
-            'No valid owner. Acquiring owner lease. Current owner:',
-            dbOwner,
-            'New owner:',
-            newDbOwner
+              LOG_TAG,
+              'No valid owner. Acquiring owner lease. Current owner:',
+              dbOwner,
+              'New owner:',
+              newDbOwner
           );
-          return store.put('owner', newDbOwner);
+          return store.put('owner', newDbOwner).next(() => true);
         } else {
-          log.debug(
-            LOG_TAG,
-            'Valid owner already. Failing. Current owner:',
-            dbOwner
-          );
-          this.persistenceError = new FirestoreError(
-            Code.FAILED_PRECONDITION,
-            EXISTING_OWNER_ERROR_MSG
-          );
-          return PersistencePromise.reject<void>(this.persistenceError);
+          return PersistencePromise.resolve(false);
         }
       });
     });
@@ -287,7 +279,7 @@ export class IndexedDbPersistence implements Persistence {
    * NOTE: To determine if the owner is zombied, this method reads from
    * LocalStorage which could be mildly expensive.
    */
-  private validOwner(dbOwner: DbOwner | null): boolean {
+  private extractCurrentOwner(dbOwner: DbOwner): string | null {
     const now = Date.now();
     const minAcceptable = now - OWNER_LEASE_MAX_AGE_MS;
     const maxAcceptable = now;
@@ -312,24 +304,14 @@ export class IndexedDbPersistence implements Persistence {
    * Schedules a recurring timer to update the owner lease timestamp to prevent
    * other tabs from taking the lease.
    */
-  private scheduleOwnerLeaseRefreshes(): void {
+  private schedulePrimaryLeaseRefresh(): void {
     // NOTE: This doesn't need to be scheduled on the async queue and doing so
     // would increase the chances of us not refreshing on time if the queue is
     // backed up for some reason.
     this.ownerLeaseRefreshHandle = setInterval(() => {
-      const txResult = this.runTransaction('Refresh owner timestamp', txn => {
-        // NOTE: We don't need to validate the current owner contents, since
-        // runTransaction does that automatically.
-        const store = txn.store<DbOwnerKey, DbOwner>(DbOwner.store);
-        return store.put('owner', new DbOwner(this.ownerId, Date.now()));
-      });
+      if (this.tryAcquirePrimaryLease()) {
 
-      txResult.catch(reason => {
-        // Probably means we lost the lease. Report the error and stop trying to
-        // refresh the lease.
-        log.error(reason);
-        this.stopOwnerLeaseRefreshes();
-      });
+      }
     }, OWNER_LEASE_REFRESH_INTERVAL_MS);
   }
 

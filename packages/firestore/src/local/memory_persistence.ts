@@ -78,12 +78,11 @@ export class MemoryPersistence implements Persistence {
     return this.remoteDocumentCache;
   }
 
-  runTransaction<T>(
-    action: string,
-    operation: (transaction: PersistenceTransaction) => PersistencePromise<T>
-  ): Promise<T> {
+  runTransaction<T>(action: string,
+                    requirePrimaryLease: boolean
+      , transactionOperation: (transaction: PersistenceTransaction) => PersistencePromise<T>): Promise<T> {
     debug(LOG_TAG, 'Starting transaction:', action);
-    return operation(new MemoryPersistenceTransaction()).toPromise();
+    return transactionOperation(new MemoryPersistenceTransaction()).toPromise();
   }
 }
 

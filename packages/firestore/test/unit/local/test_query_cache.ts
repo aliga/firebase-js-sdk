@@ -31,25 +31,24 @@ export class TestQueryCache {
   constructor(public persistence: Persistence, public cache: QueryCache) {}
 
   start(): Promise<void> {
-    return this.persistence.runTransaction('start', txn =>
-      this.cache.start(txn)
-    );
+    return this.persistence.runTransaction('start', true, txn =>
+        this.cache.start(txn));
   }
 
   addQueryData(queryData: QueryData): Promise<void> {
-    return this.persistence.runTransaction('addQueryData', txn => {
+    return this.persistence.runTransaction('addQueryData', true, txn => {
       return this.cache.addQueryData(txn, queryData);
     });
   }
 
   removeQueryData(queryData: QueryData): Promise<void> {
-    return this.persistence.runTransaction('addQueryData', txn => {
+    return this.persistence.runTransaction('addQueryData', true, txn => {
       return this.cache.removeQueryData(txn, queryData);
     });
   }
 
   getQueryData(query: Query): Promise<QueryData | null> {
-    return this.persistence.runTransaction('getQueryData', txn => {
+    return this.persistence.runTransaction('getQueryData', true, txn => {
       return this.cache.getQueryData(txn, query);
     });
   }
@@ -63,7 +62,7 @@ export class TestQueryCache {
   }
 
   addMatchingKeys(keys: DocumentKey[], targetId: TargetId): Promise<void> {
-    return this.persistence.runTransaction('addMatchingKeys', txn => {
+    return this.persistence.runTransaction('addMatchingKeys', true, txn => {
       let set = documentKeySet();
       for (const key of keys) {
         set = set.add(key);
@@ -73,7 +72,7 @@ export class TestQueryCache {
   }
 
   removeMatchingKeys(keys: DocumentKey[], targetId: TargetId): Promise<void> {
-    return this.persistence.runTransaction('removeMatchingKeys', txn => {
+    return this.persistence.runTransaction('removeMatchingKeys', true, txn => {
       let set = documentKeySet();
       for (const key of keys) {
         set = set.add(key);
@@ -84,7 +83,7 @@ export class TestQueryCache {
 
   getMatchingKeysForTargetId(targetId: TargetId): Promise<DocumentKey[]> {
     return this.persistence
-      .runTransaction('getMatchingKeysForTargetId', txn => {
+      .runTransaction('getMatchingKeysForTargetId', true, txn => {
         return this.cache.getMatchingKeysForTargetId(txn, targetId);
       })
       .then(keySet => {
@@ -95,24 +94,18 @@ export class TestQueryCache {
   }
 
   removeMatchingKeysForTargetId(targetId: TargetId): Promise<void> {
-    return this.persistence.runTransaction(
-      'removeMatchingKeysForTargetId',
-      txn => {
-        return this.cache.removeMatchingKeysForTargetId(txn, targetId);
-      }
-    );
+    return this.persistence.runTransaction('removeMatchingKeysForTargetId', true, txn => {
+      return this.cache.removeMatchingKeysForTargetId(txn, targetId);
+    });
   }
 
   containsKey(key: DocumentKey): Promise<boolean> {
-    return this.persistence.runTransaction('containsKey', txn => {
+    return this.persistence.runTransaction('containsKey', true, txn => {
       return this.cache.containsKey(txn, key);
     });
   }
 
   setLastRemoteSnapshotVersion(version: SnapshotVersion) {
-    return this.persistence.runTransaction(
-      'setLastRemoteSnapshotVersion',
-      txn => this.cache.setLastRemoteSnapshotVersion(txn, version)
-    );
+    return this.persistence.runTransaction('setLastRemoteSnapshotVersion', true, txn => this.cache.setLastRemoteSnapshotVersion(txn, version));
   }
 }

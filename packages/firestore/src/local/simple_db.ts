@@ -124,11 +124,9 @@ export class SimpleDb {
 
   constructor(private db: IDBDatabase) {}
 
-  runTransaction<T>(
-    mode: 'readonly' | 'readwrite',
-    objectStores: string[],
-    transactionFn: (transaction: SimpleDbTransaction) => PersistencePromise<T>
-  ): Promise<T> {
+  runTransaction<T>(mode: "readonly" | "readwrite",
+                    objectStores: string[],
+                    transactionFn: (transaction: SimpleDbTransaction) => PersistencePromise<T>): Promise<T> {
     const transaction = new SimpleDbTransaction(this.db, mode, objectStores);
     const transactionFnResult = transactionFn(transaction)
       .catch(error => {
