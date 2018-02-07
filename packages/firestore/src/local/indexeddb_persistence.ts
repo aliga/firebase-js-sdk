@@ -55,15 +55,19 @@ const INSTANCE_DATA_REFRESH_INTERVAL_MS = 4000;
 
 /** LocalStorage location to indicate a zombied ownerId (see class comment). */
 const ZOMBIE_OWNER_LOCALSTORAGE_SUFFIX = 'zombiedOwnerId';
-/** Error when the owner lease cannot be acquired or is lost. */
+/** Error when the owner lease is required but not available. */
 const EXISTING_OWNER_ERROR_MSG =
-  'There is another tab open with offline' +
-  ' persistence enabled. Only one such tab is allowed at a time. The' +
-  ' other tab must be closed or persistence must be disabled.';
+  'The current tab no longer acts as the primary tab and is not able to ' +
+  'perform the current operation. It might be necessary to refresh the ' +
+  'browser tab.';
 const UNSUPPORTED_PLATFORM_ERROR_MSG =
   'This platform is either missing' +
   ' IndexedDB or is known to have an incomplete implementation. Offline' +
   ' persistence has been disabled.';
+
+export interface PrimaryInstanceListener {
+  setPrimaryState(isPrimary:boolean);
+}
 
 /**
  * An IndexedDB-backed instance of Persistence. Data is stored persistently
@@ -103,6 +107,7 @@ export class IndexedDbPersistence implements Persistence {
 
   private simpleDb: SimpleDb;
   private started: boolean;
+  private primaryInstance = false;
   private dbName: string;
   private localStoragePrefix: string;
   private ownerId: string = this.generateOwnerId();
@@ -118,7 +123,7 @@ export class IndexedDbPersistence implements Persistence {
   /** Our window.unload handler, if registered. */
   private windowUnloadHandler: (() => void) | null;
 
-  private isInForeground: boolean = false;
+  private inForeground: boolean = false;
 
   private serializer: LocalSerializer;
 
@@ -139,7 +144,7 @@ export class IndexedDbPersistence implements Persistence {
 
     if (typeof document !== undefined) {
       document.addEventListener('visibilitychange', () => {
-        this.isInForeground = document.visibilityState == 'visible';
+        this.inForeground = document.visibilityState == 'visible';
       });
     }
 
@@ -157,9 +162,11 @@ export class IndexedDbPersistence implements Persistence {
       });
   }
 
-  private refreshInstanceMetadata() : Promise<boolean> {
+  private refreshInstanceMetadata() : Promise<void> {
     return this.simpleDb.runTransaction('readwrite', [DbOwner.store, DbInstanceMetadata.store], txn => {
       return this.updateInstanceState(txn).next(() => this.tryAcquireOwnerLease(txn));
+    }).then((isPrimary) => {
+
     });
   }
 
@@ -168,7 +175,7 @@ export class IndexedDbPersistence implements Persistence {
     this.started = false;
     this.detachWindowUnloadHook();
     this.stopMetadataRefreshes();
-    return this.releasePrimaryLease().then(() => {
+    return this.releaseOwnerLease().then(() => {
       this.simpleDb.close();
     });
   }
@@ -202,7 +209,6 @@ export class IndexedDbPersistence implements Persistence {
     // are the only reader/writer.
     return this.simpleDb.runTransaction('readwrite', ALL_STORES, txn => {
       if (requireOwnerLease) {
-        // Verify that we still have the owner lease.
         return this.ensureOwnerLease(txn).next(() => transactionOperation(txn));
       } else {
         return transactionOperation(txn);
@@ -240,7 +246,7 @@ export class IndexedDbPersistence implements Persistence {
    */
   private updateInstanceState(txn:SimpleDbTransaction): PersistencePromise<void> {
     const instanceMetadataStore = txn.store<DbInstanceMetadataKey, DbInstanceMetadata>(DbInstanceMetadata.store);
-    instanceMetadataStore.put(new DbInstanceMetadata(this.ownerId, Date.now(), this.isInForeground));
+    instanceMetadataStore.put(new DbInstanceMetadata(this.ownerId, Date.now(), this.inForeground));
     return PersistencePromise.resolve();
   }
 
@@ -279,7 +285,7 @@ export class IndexedDbPersistence implements Persistence {
    * instances are in the background.
    */
   private canBecomeOwner(txn:SimpleDbTransaction) : PersistencePromise<boolean> {
-    if (this.isInForeground) {
+    if (this.inForeground) {
       return PersistencePromise.resolve(true);
     }
 
@@ -296,7 +302,7 @@ export class IndexedDbPersistence implements Persistence {
   }
 
   /** Checks the owner lease and deletes it if we are the current owner. */
-  private releasePrimaryLease(): Promise<void> {
+  private releaseOwnerLease(): Promise<void> {
     // NOTE: Don't use this.runTransaction, since it requires us to already
     // have the lease.
     return this.simpleDb.runTransaction('readwrite', [DbOwner.store], txn => {
@@ -401,7 +407,7 @@ export class IndexedDbPersistence implements Persistence {
     this.windowUnloadHandler = () => {
       // Record that we're zombied.
       this.setZombiedOwnerId(this.ownerId);
-      this.isInForeground = false;
+      this.inForeground = false;
 
       // Attempt graceful shutdown (including releasing our owner lease), but
       // there's no guarantee it will complete.
