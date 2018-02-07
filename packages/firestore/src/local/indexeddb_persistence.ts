@@ -34,7 +34,10 @@ import {
 } from './indexeddb_schema';
 import { LocalSerializer } from './local_serializer';
 import { MutationQueue } from './mutation_queue';
-import { Persistence, PersistenceTransaction } from './persistence';
+import {
+  Persistence, PersistenceTransaction,
+  PrimaryStateListener
+} from './persistence';
 import { PersistencePromise } from './persistence_promise';
 import { QueryCache } from './query_cache';
 import { RemoteDocumentCache } from './remote_document_cache';
@@ -64,10 +67,6 @@ const UNSUPPORTED_PLATFORM_ERROR_MSG =
   'This platform is either missing' +
   ' IndexedDB or is known to have an incomplete implementation. Offline' +
   ' persistence has been disabled.';
-
-export interface PrimaryInstanceListener {
-  setPrimaryState(isPrimary:boolean);
-}
 
 /**
  * An IndexedDB-backed instance of Persistence. Data is stored persistently
@@ -99,17 +98,24 @@ export interface PrimaryInstanceListener {
  * owner lease immediately regardless of the current lease timestamp.
  */
 export class IndexedDbPersistence implements Persistence {
+
+  setPrimaryStateListener(primaryStateListener: PrimaryStateListener) {
+    this.primaryStateListener = primaryStateListener;
+  }
   /**
    * The name of the main (and currently only) IndexedDB database. this name is
    * appended to the prefix provided to the IndexedDbPersistence constructor.
    */
   static MAIN_DATABASE = 'main';
 
+  private static EMPTY_PRIMARY_STATE_LISTENER : PrimaryStateListener = { applyPrimaryState: () => {}};
+
   private simpleDb: SimpleDb;
   private started: boolean;
-  private primaryInstance = false;
+  private isPrimary = false;
   private dbName: string;
   private localStoragePrefix: string;
+  private primaryStateListener = IndexedDbPersistence.EMPTY_PRIMARY_STATE_LISTENER;
   private ownerId: string = this.generateOwnerId();
 
   /**
@@ -166,7 +172,10 @@ export class IndexedDbPersistence implements Persistence {
     return this.simpleDb.runTransaction('readwrite', [DbOwner.store, DbInstanceMetadata.store], txn => {
       return this.updateInstanceState(txn).next(() => this.tryAcquireOwnerLease(txn));
     }).then((isPrimary) => {
-
+        if (isPrimary !== this.isPrimary) {
+          this.primaryStateListener.applyPrimaryState(isPrimary);
+          this.isPrimary = isPrimary;
+        }
     });
   }
 

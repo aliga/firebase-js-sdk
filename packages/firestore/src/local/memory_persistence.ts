@@ -22,7 +22,10 @@ import { MemoryMutationQueue } from './memory_mutation_queue';
 import { MemoryQueryCache } from './memory_query_cache';
 import { MemoryRemoteDocumentCache } from './memory_remote_document_cache';
 import { MutationQueue } from './mutation_queue';
-import { Persistence, PersistenceTransaction } from './persistence';
+import {
+  Persistence, PersistenceTransaction,
+  PrimaryStateListener
+} from './persistence';
 import { PersistencePromise } from './persistence_promise';
 import { QueryCache } from './query_cache';
 import { RemoteDocumentCache } from './remote_document_cache';
@@ -34,6 +37,9 @@ const LOG_TAG = 'MemoryPersistence';
  * not persisted across sessions.
  */
 export class MemoryPersistence implements Persistence {
+  setPrimaryStateListener(primaryStateListener: PrimaryStateListener) {
+    primaryStateListener.applyPrimaryState(true);
+  }
   /**
    * Note that these are retained here to make it easier to write tests
    * affecting both the in-memory and IndexedDB-backed persistence layers. Tests

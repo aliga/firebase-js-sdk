@@ -31,6 +31,27 @@ import { RemoteDocumentCache } from './remote_document_cache';
  */
 export interface PersistenceTransaction {}
 
+
+/**
+ * Interface that defines a callback for primary state notifications. This
+ * callback can be registered with the Persistence layer to get notified
+ * when we transition from primary to secondary state and vice versa.
+ *
+ * Instances can only toggle between Primary and Secondary state if IndexedDB
+ * persistence is enabled and multiple instances are active. If this listener is
+ * instead registered with MemoryPersistence, the callback will be called
+ * exactly once marking the current instance as Primary.
+ */
+export interface PrimaryStateListener {
+  /**
+   * Transitions this instance to primary or secondary state. This callback
+   * can be called after the fact (for example when an instance loses its owner
+   * lease unexpectedly) and all necessary state transitions should be applied
+   * synchronously.
+   */
+  applyPrimaryState(isPrimary:boolean);
+}
+
 /**
  * Persistence is the lowest-level shared interface to persistent storage in
  * Firestore.
@@ -77,6 +98,12 @@ export interface Persistence {
 
   /** Releases any resources held during eager shutdown. */
   shutdown(): Promise<void>;
+
+  /**
+   * Registers a listener that gets called when the primary state of the
+   * instance changes.
+   */
+  setPrimaryStateListener(primaryStateListener:PrimaryStateListener);
 
   /**
    * Returns a MutationQueue representing the persisted mutations for the
