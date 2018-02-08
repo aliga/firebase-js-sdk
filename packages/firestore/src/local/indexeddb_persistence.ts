@@ -319,6 +319,7 @@ export class IndexedDbPersistence implements Persistence {
       return store.get('owner').next(dbOwner => {
         if (dbOwner !== null && dbOwner.ownerId === this.ownerId) {
           log.debug(LOG_TAG, 'Releasing owner lease.');
+          this.primaryStateListener.applyPrimaryState(false);
           return store.delete('owner');
         } else {
           return PersistencePromise.resolve();
@@ -416,7 +417,6 @@ export class IndexedDbPersistence implements Persistence {
     this.windowUnloadHandler = () => {
       // Record that we're zombied.
       this.setZombiedOwnerId(this.ownerId);
-      this.inForeground = false;
 
       // Attempt graceful shutdown (including releasing our owner lease), but
       // there's no guarantee it will complete.
