@@ -24,7 +24,7 @@ import {
   SharedClientState,
   ClientKey
 } from '../../../src/local/shared_client_state';
-import {BatchId, TargetId} from '../../../src/core/types';
+import { BatchId, TargetId } from '../../../src/core/types';
 
 /** The persistence prefix used for testing in IndexedBD and LocalStorage. */
 export const TEST_PERSISTENCE_PREFIX = 'PersistenceTestHelpers';
@@ -83,7 +83,6 @@ export async function testWebStorageSharedClientState(
     existingMutationBatchIds.length > 0 ||
     existingQueryTargetIds.length > 0
   ) {
-
     // HACK: Create a secondary client state to seed data into LocalStorage.
     // NOTE: We don't call shutdown() on it because that would delete the data.
     const secondaryClientState = new WebStorageSharedClientState(

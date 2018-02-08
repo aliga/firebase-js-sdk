@@ -31,7 +31,6 @@ import { RemoteDocumentCache } from './remote_document_cache';
  */
 export interface PersistenceTransaction {}
 
-
 /**
  * Interface that defines a callback for primary state notifications. This
  * callback can be registered with the Persistence layer to get notified
@@ -49,7 +48,7 @@ export interface PrimaryStateListener {
    * lease unexpectedly) and all necessary state transitions should be applied
    * synchronously.
    */
-  applyPrimaryState(isPrimary:boolean);
+  applyPrimaryState(isPrimary: boolean);
 }
 
 /**
@@ -103,7 +102,7 @@ export interface Persistence {
    * Registers a listener that gets called when the primary state of the
    * instance changes.
    */
-  setPrimaryStateListener(primaryStateListener:PrimaryStateListener);
+  setPrimaryStateListener(primaryStateListener: PrimaryStateListener);
 
   /**
    * Returns a MutationQueue representing the persisted mutations for the

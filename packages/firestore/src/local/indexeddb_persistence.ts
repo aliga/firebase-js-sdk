@@ -17,7 +17,7 @@
 import { User } from '../auth/user';
 import { DatabaseInfo } from '../core/database_info';
 import { JsonProtoSerializer } from '../remote/serializer';
-import {assert} from '../util/assert';
+import { assert } from '../util/assert';
 import { Code, FirestoreError } from '../util/error';
 import * as log from '../util/log';
 import { AutoId } from '../util/misc';
@@ -27,7 +27,9 @@ import { IndexedDbQueryCache } from './indexeddb_query_cache';
 import { IndexedDbRemoteDocumentCache } from './indexeddb_remote_document_cache';
 import {
   ALL_STORES,
-  createOrUpgradeDb, DbInstanceMetadata, DbInstanceMetadataKey,
+  createOrUpgradeDb,
+  DbInstanceMetadata,
+  DbInstanceMetadataKey,
   DbOwner,
   DbOwnerKey,
   SCHEMA_VERSION
@@ -35,13 +37,14 @@ import {
 import { LocalSerializer } from './local_serializer';
 import { MutationQueue } from './mutation_queue';
 import {
-  Persistence, PersistenceTransaction,
+  Persistence,
+  PersistenceTransaction,
   PrimaryStateListener
 } from './persistence';
 import { PersistencePromise } from './persistence_promise';
 import { QueryCache } from './query_cache';
 import { RemoteDocumentCache } from './remote_document_cache';
-import {SimpleDb, SimpleDbStore, SimpleDbTransaction} from './simple_db';
+import { SimpleDb, SimpleDbStore, SimpleDbTransaction } from './simple_db';
 
 const LOG_TAG = 'IndexedDbPersistence';
 
@@ -98,7 +101,6 @@ const UNSUPPORTED_PLATFORM_ERROR_MSG =
  * owner lease immediately regardless of the current lease timestamp.
  */
 export class IndexedDbPersistence implements Persistence {
-
   setPrimaryStateListener(primaryStateListener: PrimaryStateListener) {
     this.primaryStateListener = primaryStateListener;
   }
@@ -108,7 +110,9 @@ export class IndexedDbPersistence implements Persistence {
    */
   static MAIN_DATABASE = 'main';
 
-  private static EMPTY_PRIMARY_STATE_LISTENER : PrimaryStateListener = { applyPrimaryState: () => {}};
+  private static EMPTY_PRIMARY_STATE_LISTENER: PrimaryStateListener = {
+    applyPrimaryState: () => {}
+  };
 
   private simpleDb: SimpleDb;
   private started: boolean;
@@ -168,15 +172,23 @@ export class IndexedDbPersistence implements Persistence {
       });
   }
 
-  private refreshInstanceMetadata() : Promise<void> {
-    return this.simpleDb.runTransaction('readwrite', [DbOwner.store, DbInstanceMetadata.store], txn => {
-      return this.updateInstanceState(txn).next(() => this.tryAcquireOwnerLease(txn));
-    }).then((isPrimary) => {
+  private refreshInstanceMetadata(): Promise<void> {
+    return this.simpleDb
+      .runTransaction(
+        'readwrite',
+        [DbOwner.store, DbInstanceMetadata.store],
+        txn => {
+          return this.updateInstanceState(txn).next(() =>
+            this.tryAcquireOwnerLease(txn)
+          );
+        }
+      )
+      .then(isPrimary => {
         if (isPrimary !== this.isPrimary) {
           this.primaryStateListener.applyPrimaryState(isPrimary);
           this.isPrimary = isPrimary;
         }
-    });
+      });
   }
 
   shutdown(): Promise<void> {
@@ -253,9 +265,16 @@ export class IndexedDbPersistence implements Persistence {
    * Updates the InstanceMetadata store with the foreground state of this
    * instance.
    */
-  private updateInstanceState(txn:SimpleDbTransaction): PersistencePromise<void> {
-    const instanceMetadataStore = txn.store<DbInstanceMetadataKey, DbInstanceMetadata>(DbInstanceMetadata.store);
-    instanceMetadataStore.put(new DbInstanceMetadata(this.ownerId, Date.now(), this.inForeground));
+  private updateInstanceState(
+    txn: SimpleDbTransaction
+  ): PersistencePromise<void> {
+    const instanceMetadataStore = txn.store<
+      DbInstanceMetadataKey,
+      DbInstanceMetadata
+    >(DbInstanceMetadata.store);
+    instanceMetadataStore.put(
+      new DbInstanceMetadata(this.ownerId, Date.now(), this.inForeground)
+    );
     return PersistencePromise.resolve();
   }
 
@@ -263,18 +282,20 @@ export class IndexedDbPersistence implements Persistence {
    * Tries to acquire and refresh the owner lease if there's no valid owner.
    * Returns whether the instance is the current owner.
    */
-  private tryAcquireOwnerLease(txn:SimpleDbTransaction): PersistencePromise<boolean> {
+  private tryAcquireOwnerLease(
+    txn: SimpleDbTransaction
+  ): PersistencePromise<boolean> {
     const ownerStore = txn.store<DbOwnerKey, DbOwner>(DbOwner.store);
     return ownerStore.get('owner').next(dbOwner => {
       const currentOwner = this.extractCurrentOwner(dbOwner);
       if (currentOwner === null && this.canBecomeOwner(txn)) {
         const newDbOwner = new DbOwner(this.ownerId, Date.now());
         log.debug(
-            LOG_TAG,
-            'No valid owner. Acquiring owner lease. Current owner:',
-            dbOwner,
-            'New owner:',
-            newDbOwner
+          LOG_TAG,
+          'No valid owner. Acquiring owner lease. Current owner:',
+          dbOwner,
+          'New owner:',
+          newDbOwner
         );
         return ownerStore.put('owner', newDbOwner).next(() => true);
       } else if (currentOwner === this.ownerId) {
@@ -293,21 +314,28 @@ export class IndexedDbPersistence implements Persistence {
    * instance can become an owner if it is in the foreground or if all active
    * instances are in the background.
    */
-  private canBecomeOwner(txn:SimpleDbTransaction) : PersistencePromise<boolean> {
+  private canBecomeOwner(
+    txn: SimpleDbTransaction
+  ): PersistencePromise<boolean> {
     if (this.inForeground) {
       return PersistencePromise.resolve(true);
     }
 
     let canBecomeOwner = true;
 
-    return instanceMetadataStore(txn).iterate((key, value, control) => {
-      if (value.instanceKey !== value.instanceKey) {
-        if (this.isRecentlyUpdated(value.updateTimeMs) && value.isInForeground) {
-          canBecomeOwner = false;
-          control.done();
+    return instanceMetadataStore(txn)
+      .iterate((key, value, control) => {
+        if (value.instanceKey !== value.instanceKey) {
+          if (
+            this.isRecentlyUpdated(value.updateTimeMs) &&
+            value.isInForeground
+          ) {
+            canBecomeOwner = false;
+            control.done();
+          }
         }
-      }
-    }).next(() => canBecomeOwner);
+      })
+      .next(() => canBecomeOwner);
   }
 
   /** Checks the owner lease and deletes it if we are the current owner. */
@@ -349,16 +377,14 @@ export class IndexedDbPersistence implements Persistence {
   }
 
   /** Verifies that that `updateTimeMs` is within the last 5 seconds. */
-  private isRecentlyUpdated(updateTimeMs: number) :boolean {
+  private isRecentlyUpdated(updateTimeMs: number): boolean {
     const now = Date.now();
     const minAcceptable = now - INSTANCE_DATA_MAX_AGE_MS;
     const maxAcceptable = now;
-    if (updateTimeMs< minAcceptable) {
+    if (updateTimeMs < minAcceptable) {
       return false; // owner lease has expired.
     } else if (updateTimeMs > maxAcceptable) {
-      log.error(
-          'Detected an update time that is in the future.'
-      );
+      log.error('Detected an update time that is in the future.');
       return false;
     }
 
@@ -481,12 +507,13 @@ export class IndexedDbPersistence implements Persistence {
   }
 }
 
-
 /**
  * Helper to get a typed SimpleDbStore for the instance metadata object store.
  */
 function instanceMetadataStore(
-    txn: SimpleDbTransaction
+  txn: SimpleDbTransaction
 ): SimpleDbStore<DbInstanceMetadataKey, DbInstanceMetadata> {
-  return txn.store<DbInstanceMetadataKey, DbInstanceMetadata>(DbInstanceMetadata.store);
+  return txn.store<DbInstanceMetadataKey, DbInstanceMetadata>(
+    DbInstanceMetadata.store
+  );
 }

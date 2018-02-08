@@ -23,7 +23,8 @@ import { MemoryQueryCache } from './memory_query_cache';
 import { MemoryRemoteDocumentCache } from './memory_remote_document_cache';
 import { MutationQueue } from './mutation_queue';
 import {
-  Persistence, PersistenceTransaction,
+  Persistence,
+  PersistenceTransaction,
   PrimaryStateListener
 } from './persistence';
 import { PersistencePromise } from './persistence_promise';

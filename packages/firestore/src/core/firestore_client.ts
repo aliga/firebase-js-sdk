@@ -266,18 +266,18 @@ export class FirestoreClient {
       .loadConnection(this.databaseInfo)
       .then(connection => {
         this.localStore = new LocalStore(
-            this.persistence,
-            user,
-            this.garbageCollector
+          this.persistence,
+          user,
+          this.garbageCollector
         );
         const serializer = this.platform.newSerializer(
-            this.databaseInfo.databaseId
+          this.databaseInfo.databaseId
         );
         const datastore = new Datastore(
-            this.asyncQueue,
-            connection,
-            this.credentials,
-            serializer
+          this.asyncQueue,
+          connection,
+          this.credentials,
+          serializer
         );
 
         const onlineStateChangedHandler = (onlineState: OnlineState) => {
@@ -286,15 +286,15 @@ export class FirestoreClient {
         };
 
         this.remoteStore = new RemoteStore(
-            this.localStore,
-            datastore,
-            onlineStateChangedHandler
+          this.localStore,
+          datastore,
+          onlineStateChangedHandler
         );
 
         this.syncEngine = new SyncEngine(
-            this.localStore,
-            this.remoteStore,
-            user
+          this.localStore,
+          this.remoteStore,
+          user
         );
 
         // Setup wiring between sync engine and remote store

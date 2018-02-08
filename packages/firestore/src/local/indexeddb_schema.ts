@@ -565,11 +565,9 @@ export class DbInstanceMetadata {
     public instanceKey: string,
     /** @param  updateTimeMs - The last time this state was updated in Epoch milliseconds. */
     public updateTimeMs: number,
-
-    public isInForeground: boolean,
+    public isInForeground: boolean
   ) {}
 }
-
 
 /** Object keys in the 'instanceMetadata' store are [userId, instanceKey] paris. */
 export type DbInstanceMetadataKey = string;

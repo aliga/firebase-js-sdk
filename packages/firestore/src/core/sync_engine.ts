@@ -51,7 +51,7 @@ import {
   ViewDocumentChanges
 } from './view';
 import { ViewSnapshot } from './view_snapshot';
-import {PrimaryStateListener} from '../local/persistence';
+import { PrimaryStateListener } from '../local/persistence';
 
 const LOG_TAG = 'SyncEngine';
 
@@ -104,8 +104,7 @@ class QueryView {
  * global async queue.
  */
 export class SyncEngine implements RemoteSyncer, PrimaryStateListener {
-  applyPrimaryState(isPrimary: boolean) {
-  }
+  applyPrimaryState(isPrimary: boolean) {}
   private viewHandler: ViewHandler | null = null;
   private errorHandler: ErrorHandler | null = null;
 
