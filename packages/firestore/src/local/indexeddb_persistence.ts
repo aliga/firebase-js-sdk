@@ -17,7 +17,7 @@
 import { User } from '../auth/user';
 import { DatabaseInfo } from '../core/database_info';
 import { JsonProtoSerializer } from '../remote/serializer';
-import {assert, fail} from '../util/assert';
+import {assert} from '../util/assert';
 import { Code, FirestoreError } from '../util/error';
 import * as log from '../util/log';
 import { AutoId } from '../util/misc';
@@ -29,7 +29,7 @@ import {
   ALL_STORES,
   createOrUpgradeDb, DbInstanceMetadata, DbInstanceMetadataKey,
   DbOwner,
-  DbOwnerKey, DbTargetDocument, DbTargetDocumentKey, DbTimestamp,
+  DbOwnerKey,
   SCHEMA_VERSION
 } from './indexeddb_schema';
 import { LocalSerializer } from './local_serializer';
@@ -129,7 +129,7 @@ export class IndexedDbPersistence implements Persistence {
   /** Our window.unload handler, if registered. */
   private windowUnloadHandler: (() => void) | null;
 
-  private inForeground: boolean = false;
+  private inForeground = false;
 
   private serializer: LocalSerializer;
 
@@ -150,7 +150,7 @@ export class IndexedDbPersistence implements Persistence {
 
     if (typeof document !== undefined) {
       document.addEventListener('visibilitychange', () => {
-        this.inForeground = document.visibilityState == 'visible';
+        this.inForeground = document.visibilityState === 'visible';
       });
     }
 
@@ -301,7 +301,7 @@ export class IndexedDbPersistence implements Persistence {
     let canBecomeOwner = true;
 
     return instanceMetadataStore(txn).iterate((key, value, control) => {
-      if (value.instanceKey != value.instanceKey) {
+      if (value.instanceKey !== value.instanceKey) {
         if (this.isRecentlyUpdated(value.updateTimeMs) && value.isInForeground) {
           canBecomeOwner = false;
           control.done();

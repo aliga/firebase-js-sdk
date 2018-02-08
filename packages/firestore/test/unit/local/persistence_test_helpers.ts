@@ -20,17 +20,17 @@ import { MemoryPersistence } from '../../../src/local/memory_persistence';
 import { SimpleDb } from '../../../src/local/simple_db';
 import { JsonProtoSerializer } from '../../../src/remote/serializer';
 import {
-  WebStorageMetadataChannel,
-  InstanceMetadataChannel,
-  InstanceKey
-} from '../../../src/local/instance_metadata_channel';
-import { BatchId, TargetId } from '../../../src/core/types';
+  WebStorageSharedClientState,
+  SharedClientState,
+  ClientKey
+} from '../../../src/local/shared_client_state';
+import {BatchId, TargetId} from '../../../src/core/types';
 
 /** The persistence prefix used for testing in IndexedBD and LocalStorage. */
 export const TEST_PERSISTENCE_PREFIX = 'PersistenceTestHelpers';
 
 /** The instance key of the secondary instance in LocalStorage. */
-const SECONDARY_INSTANCE_KEY: InstanceKey = 'AlternativePersistence';
+const SECONDARY_INSTANCE_KEY: ClientKey = 'AlternativePersistence';
 
 /** The prefix used by the keys that Firestore writes to Local Storage. */
 const LOCAL_STORAGE_PREFIX = 'fs_';
@@ -61,14 +61,15 @@ export async function testMemoryPersistence(): Promise<MemoryPersistence> {
 }
 
 /**
- * Creates and starts a LocalStorageMetadataNotifier instance for testing,
- * destroying any previous contents if they existed.
+
+ * Creates and starts a WebStorageSharedClientState instance for testing,
+ * destroying any previous contents in LocalStorage if they existed.
  */
-export async function testLocalStorageNotificationChannel(
+export async function testWebStorageSharedClientState(
   instanceKey: string,
   existingMutationBatchIds: BatchId[],
   existingQueryTargetIds: TargetId[]
-): Promise<InstanceMetadataChannel> {
+): Promise<SharedClientState> {
   let key;
   for (let i = 0; (key = window.localStorage.key(i)) !== null; ++i) {
     if (key.startsWith(LOCAL_STORAGE_PREFIX)) {
@@ -82,30 +83,30 @@ export async function testLocalStorageNotificationChannel(
     existingMutationBatchIds.length > 0 ||
     existingQueryTargetIds.length > 0
   ) {
-    // HACK: Create a secondary channel to seed data into LocalStorage.
+
+    // HACK: Create a secondary client state to seed data into LocalStorage.
     // NOTE: We don't call shutdown() on it because that would delete the data.
-    const secondaryChannel = new WebStorageMetadataChannel(
+    const secondaryClientState = new WebStorageSharedClientState(
       TEST_PERSISTENCE_PREFIX,
       SECONDARY_INSTANCE_KEY
     );
 
     knownInstances.push(SECONDARY_INSTANCE_KEY);
-
-    await secondaryChannel.start([]);
+    await secondaryClientState.start([]);
 
     for (const batchId of existingMutationBatchIds) {
-      secondaryChannel.addLocalPendingMutation(batchId);
+      secondaryClientState.addLocalPendingMutation(batchId);
     }
 
     for (const targetId of existingQueryTargetIds) {
-      secondaryChannel.addLocallyActiveQueryTarget(targetId);
+      secondaryClientState.addLocalQueryTarget(targetId);
     }
   }
 
-  const notificationChannel = new WebStorageMetadataChannel(
+  const sharedClientState = new WebStorageSharedClientState(
     TEST_PERSISTENCE_PREFIX,
     instanceKey
   );
-  await notificationChannel.start(knownInstances);
-  return notificationChannel;
+  await sharedClientState.start(knownInstances);
+  return sharedClientState;
 }
