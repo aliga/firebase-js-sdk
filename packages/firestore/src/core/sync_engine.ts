@@ -104,7 +104,6 @@ class QueryView {
  * global async queue.
  */
 export class SyncEngine implements RemoteSyncer, PrimaryStateListener {
-  applyPrimaryState(isPrimary: boolean) {}
   private viewHandler: ViewHandler | null = null;
   private errorHandler: ErrorHandler | null = null;
 
@@ -123,12 +122,17 @@ export class SyncEngine implements RemoteSyncer, PrimaryStateListener {
     [uidKey: string]: SortedMap<BatchId, Deferred<void>>;
   };
   private targetIdGenerator = TargetIdGenerator.forSyncEngine();
+  private primaryClient = false;
 
   constructor(
     private localStore: LocalStore,
     private remoteStore: RemoteStore,
     private currentUser: User
   ) {}
+
+  get isPrimaryClient() {
+    return this.primaryClient;
+  }
 
   /** Subscribes view and error handler. Can be called only once. */
   subscribe(viewHandler: ViewHandler, errorHandler: ErrorHandler): void {
@@ -617,5 +621,9 @@ export class SyncEngine implements RemoteSyncer, PrimaryStateListener {
       .then(() => {
         return this.remoteStore.handleUserChange(user);
       });
+  }
+
+  applyPrimaryState(primaryClient: boolean) {
+    this.primaryClient = primaryClient;
   }
 }

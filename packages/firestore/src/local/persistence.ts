@@ -43,12 +43,12 @@ export interface PersistenceTransaction {}
  */
 export interface PrimaryStateListener {
   /**
-   * Transitions this instance to primary or secondary state. This callback
+   * Transitions this instance betwern primary or secondary state. This callback
    * can be called after the fact (for example when an instance loses its owner
    * lease unexpectedly) and all necessary state transitions should be applied
    * synchronously.
    */
-  applyPrimaryState(isPrimary: boolean);
+  applyPrimaryState(primaryClient: boolean);
 }
 
 /**

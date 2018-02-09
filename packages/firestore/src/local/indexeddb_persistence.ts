@@ -49,15 +49,15 @@ import { SimpleDb, SimpleDbStore, SimpleDbTransaction } from './simple_db';
 const LOG_TAG = 'IndexedDbPersistence';
 
 /**
- * Instance metadata and owner leases that are older than 5 seconds can be
- * discarded.
+ * Oldest acceptable age in milliseconds for client states read from IndexedDB.
+ * Client state and owner leases that are older than 5 seconds are ignored.
  */
-const INSTANCE_DATA_MAX_AGE_MS = 5000;
+const CLIENT_STATE_MAX_AGE_MS = 5000;
 /**
- * Refresh the instance metadata and try to acquire the owner lease every 4
+ * Refresh interval for the client state. We refresh the client state every four
  * seconds.
  */
-const INSTANCE_DATA_REFRESH_INTERVAL_MS = 4000;
+const CLIENT_STATE_REFRESH_INTERVAL_MS = 4000;
 
 /** LocalStorage location to indicate a zombied ownerId (see class comment). */
 const ZOMBIE_OWNER_LOCALSTORAGE_SUFFIX = 'zombiedOwnerId';
@@ -129,7 +129,7 @@ export class IndexedDbPersistence implements Persistence {
   private persistenceError: Error | null;
   /** The setInterval() handle tied to refreshing the owner lease. */
   // tslint:disable-next-line:no-any setTimeout() type differs on browser / node
-  private metadataRefreshHandle: any;
+  private clientStateRefreshHandler: any;
   /** Our window.unload handler, if registered. */
   private windowUnloadHandler: (() => void) | null;
 
@@ -137,7 +137,7 @@ export class IndexedDbPersistence implements Persistence {
 
   private serializer: LocalSerializer;
 
-  constructor(prefix: string, serializer: JsonProtoSerializer) {
+  constructor(prefix: string, serializer: JsonProtoSerializer, private readonly asyncQueue) {
     this.dbName = prefix + IndexedDbPersistence.MAIN_DATABASE;
     this.serializer = new LocalSerializer(serializer);
     this.localStoragePrefix = prefix;
@@ -154,7 +154,13 @@ export class IndexedDbPersistence implements Persistence {
 
     if (typeof document !== undefined) {
       document.addEventListener('visibilitychange', () => {
-        this.inForeground = document.visibilityState === 'visible';
+        this.asyncQueue(() => {
+          const inForeground = document.visibilityState === 'visible';
+          if (inForeground !== this.inForeground) {
+            this.inForeground = inForeground;
+            this.refreshInstanceMetadata();
+          }
+        });
       });
     }
 
@@ -172,8 +178,8 @@ export class IndexedDbPersistence implements Persistence {
       });
   }
 
-  private refreshInstanceMetadata(): Promise<void> {
-    return this.simpleDb
+  private refreshInstanceMetadata(): void {
+    this.simpleDb
       .runTransaction(
         'readwrite',
         [DbOwner.store, DbInstanceMetadata.store],
@@ -185,8 +191,8 @@ export class IndexedDbPersistence implements Persistence {
       )
       .then(isPrimary => {
         if (isPrimary !== this.isPrimary) {
-          this.primaryStateListener.applyPrimaryState(isPrimary);
           this.isPrimary = isPrimary;
+          this.primaryStateListener.applyPrimaryState(isPrimary);
         }
       });
   }
@@ -379,7 +385,7 @@ export class IndexedDbPersistence implements Persistence {
   /** Verifies that that `updateTimeMs` is within the last 5 seconds. */
   private isRecentlyUpdated(updateTimeMs: number): boolean {
     const now = Date.now();
-    const minAcceptable = now - INSTANCE_DATA_MAX_AGE_MS;
+    const minAcceptable = now - CLIENT_STATE_MAX_AGE_MS;
     const maxAcceptable = now;
     if (updateTimeMs < minAcceptable) {
       return false; // owner lease has expired.
@@ -418,15 +424,15 @@ export class IndexedDbPersistence implements Persistence {
     // NOTE: This doesn't need to be scheduled on the async queue and doing so
     // would increase the chances of us not refreshing on time if the queue is
     // backed up for some reason.
-    this.metadataRefreshHandle = setInterval(() => {
+    this.clientStateRefreshHandler = setInterval(() => {
       this.refreshInstanceMetadata();
-    }, INSTANCE_DATA_REFRESH_INTERVAL_MS);
+    }, CLIENT_STATE_REFRESH_INTERVAL_MS);
   }
 
   private stopMetadataRefreshes(): void {
-    if (this.metadataRefreshHandle) {
-      clearInterval(this.metadataRefreshHandle);
-      this.metadataRefreshHandle = null;
+    if (this.clientStateRefreshHandler) {
+      clearInterval(this.clientStateRefreshHandler);
+      this.clientStateRefreshHandler = null;
     }
   }
 

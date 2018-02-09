@@ -182,4 +182,16 @@ describeSpec('Persistence:', ['persistence'], () => {
         })
     );
   });
+
+  specTest('Becomes master when in foreground', ['multi-tab'], () => {
+    return (
+      spec()
+          .expectPrimaryState(true)
+          .clientBecomesHidden()
+
+          .expectPrimaryState(false)
+          . clientBecomesVisible()
+        .expectPrimaryState(false)
+    );
+  })
 });

@@ -349,10 +349,11 @@ abstract class TestRunner {
       'host',
       false
     );
+    this.queue = new AsyncQueue();
     this.serializer = new JsonProtoSerializer(this.databaseInfo.databaseId, {
       useProto3Json: true
     });
-    this.persistence = this.getPersistence(this.serializer);
+    this.persistence = this.getPersistence(this.serializer, this.queue);
 
     this.useGarbageCollection = config.useGarbageCollection;
 
@@ -371,7 +372,6 @@ abstract class TestRunner {
       garbageCollector
     );
 
-    this.queue = new AsyncQueue();
     this.connection = new MockConnection(this.queue);
     // Set backoff delay to 1ms so simulated disconnects don't delay the tests.
     const initialBackoffDelay = 1;
@@ -411,7 +411,8 @@ abstract class TestRunner {
   }
 
   protected abstract getPersistence(
-    serializer: JsonProtoSerializer
+    serializer: JsonProtoSerializer,
+    queue:AsyncQueue,
   ): Persistence;
   protected abstract destroyPersistence(): Promise<void>;
 
@@ -475,6 +476,8 @@ abstract class TestRunner {
     } else if ('restart' in step) {
       assert(step.restart!, 'Restart cannot be false');
       return this.doRestart();
+    } else if ('changeClientState' in step) {
+      return this.doChangeClientState(step.changeClientState!);
     } else if ('changeUser' in step) {
       return this.doChangeUser(step.changeUser!);
     } else {
@@ -793,6 +796,16 @@ abstract class TestRunner {
     });
   }
 
+  private doChangeClientState(user: string | null): Promise<void> {
+    this.user = new User(user);
+    return this.queue.schedule(() =>
+        document.dispatchEvent(
+            ctx.pubWin.document, domevents.Event.VISIBILITYCHANG)
+        this.persistence.runTransaction()
+    );
+  }
+
+
   private doChangeUser(user: string | null): Promise<void> {
     this.user = new User(user);
     return this.queue.schedule(() =>
@@ -841,6 +854,9 @@ abstract class TestRunner {
       }
       if ('activeTargets' in expectation) {
         this.expectedActiveTargets = expectation.activeTargets!;
+      }
+      if ('isPrimary' in expectation) {
+        expect(this.syncEngine.isPrimaryClient).to.eq(expectation.isPrimary!);
       }
     }
 
@@ -1012,10 +1028,11 @@ class MemoryTestRunner extends TestRunner {
 class IndexedDbTestRunner extends TestRunner {
   static TEST_DB_NAME = 'specs';
 
-  protected getPersistence(serializer: JsonProtoSerializer): Persistence {
+  protected getPersistence(serializer: JsonProtoSerializer, queue:AsyncQueue): Persistence {
     return new IndexedDbPersistence(
       IndexedDbTestRunner.TEST_DB_NAME,
-      serializer
+      serializer,
+queue
     );
   }
 
@@ -1100,6 +1117,8 @@ export interface SpecStep {
 
   /** Enable or disable RemoteStore's network connection. */
   enableNetwork?: boolean;
+
+  changeClientState?: SpecClientState;
 
   /** Change to a new active user (specified by uid or null for anonymous). */
   changeUser?: string | null;
@@ -1190,6 +1209,10 @@ export interface SpecWatchEntity {
   removedTargets?: TargetId[];
 }
 
+export type SpecClientState = {
+  visibility?: 'foreground' | 'background' | 'unknown';
+};
+
 /**
  * [[<target-id>, ...], <key>, ...]
  * Note that the last parameter is really of type ...string (spread operator)
@@ -1251,6 +1274,7 @@ export interface StateExpectation {
   watchStreamRequestCount?: number;
   /** Current documents in limbo. Verified in each step until overwritten. */
   limboDocs?: string[];
+  isPrimary?: boolean;
   /**
    * Current expected active targets. Verified in each step until overwritten.
    */
