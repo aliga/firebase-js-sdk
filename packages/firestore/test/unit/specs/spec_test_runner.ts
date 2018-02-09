@@ -412,7 +412,7 @@ abstract class TestRunner {
 
   protected abstract getPersistence(
     serializer: JsonProtoSerializer,
-    queue:AsyncQueue,
+    queue: AsyncQueue
   ): Persistence;
   protected abstract destroyPersistence(): Promise<void>;
 
@@ -799,12 +799,10 @@ abstract class TestRunner {
   private doChangeClientState(user: string | null): Promise<void> {
     this.user = new User(user);
     return this.queue.schedule(() => {
-          document.dispatchEvent(new Event('visibilitychange'));
-          return Promise.resolve();
-    }
-    );
+      document.dispatchEvent(new Event('visibilitychange'));
+      return Promise.resolve();
+    });
   }
-
 
   private doChangeUser(user: string | null): Promise<void> {
     this.user = new User(user);
@@ -1028,11 +1026,14 @@ class MemoryTestRunner extends TestRunner {
 class IndexedDbTestRunner extends TestRunner {
   static TEST_DB_NAME = 'specs';
 
-  protected getPersistence(serializer: JsonProtoSerializer, queue:AsyncQueue): Persistence {
+  protected getPersistence(
+    serializer: JsonProtoSerializer,
+    queue: AsyncQueue
+  ): Persistence {
     return new IndexedDbPersistence(
       IndexedDbTestRunner.TEST_DB_NAME,
       serializer,
-queue
+      queue
     );
   }
 
