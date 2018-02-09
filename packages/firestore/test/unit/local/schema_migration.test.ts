@@ -15,7 +15,6 @@
  */
 
 import { expect } from 'chai';
-import { IndexedDbMutationQueue } from '../../../src/local/indexeddb_mutation_queue';
 import { IndexedDbPersistence } from '../../../src/local/indexeddb_persistence';
 import {
   ALL_STORES,
@@ -23,40 +22,30 @@ import {
   V1_STORES
 } from '../../../src/local/indexeddb_schema';
 import { Deferred } from '../../../src/util/promise';
+import { SimpleDb } from '../../../src/local/simple_db';
 
 const INDEXEDDB_TEST_DATABASE = 'schemaTest';
 
-function deleteDb() {
-  const deferred = new Deferred<void>();
-
-  const request = window.indexedDB.deleteDatabase(INDEXEDDB_TEST_DATABASE);
-  request.onsuccess = (event: Event) => {
-    deferred.resolve();
-  };
-  request.onerror = (event: ErrorEvent) => {
-    deferred.reject((event.target as IDBOpenDBRequest).error);
-  };
-
-  return deferred;
-}
-
-function initDb(targetVersion) {
-  const deferred = new Deferred<IDBDatabase>();
-
-  const request = window.indexedDB.open(INDEXEDDB_TEST_DATABASE, targetVersion);
-  request.onsuccess = (event: Event) => {
-    const db = (event.target as IDBOpenDBRequest).result;
-    deferred.resolve(db);
-  };
-  request.onerror = (event: ErrorEvent) => {
-    deferred.reject((event.target as IDBOpenDBRequest).error);
-  };
-  request.onupgradeneeded = (event: IDBVersionChangeEvent) => {
-    const db = (event.target as IDBOpenDBRequest).result;
-    createOrUpgradeDb(db, event.oldVersion, targetVersion);
-  };
-
-  return deferred.promise;
+function withDb(schemaVersion, fn: (db: IDBDatabase) => void): Promise<void> {
+  return new Promise<IDBDatabase>((resolve, reject) => {
+    const request = window.indexedDB.open(
+      INDEXEDDB_TEST_DATABASE,
+      schemaVersion
+    );
+    request.onupgradeneeded = (event: IDBVersionChangeEvent) => {
+      const db = (event.target as IDBOpenDBRequest).result;
+      createOrUpgradeDb(db, event.oldVersion, schemaVersion);
+    };
+    request.onsuccess = (event: Event) => {
+      resolve((event.target as IDBOpenDBRequest).result);
+    };
+    request.onerror = (event: ErrorEvent) => {
+      reject((event.target as IDBOpenDBRequest).error);
+    };
+  }).then(db => {
+    fn(db);
+    db.close();
+  });
 }
 
 function getAllObjectStores(db: IDBDatabase): String[] {
@@ -68,40 +57,34 @@ function getAllObjectStores(db: IDBDatabase): String[] {
   return objectStores;
 }
 
-// Sorting these arrays directly should not affect the functionality of the SDK.
-V1_STORES.sort();
-ALL_STORES.sort();
-
-describe('SchemaMigration', () => {
+describe('IndexedDbSchema: createOrUpgradeDb', () => {
   if (!IndexedDbPersistence.isAvailable()) {
-    console.warn('No IndexedDB. Skipping IndexedDbMutationQueue tests.');
+    console.warn('No IndexedDB. Skipping createOrUpgradeDb() tests.');
     return;
   }
 
-  beforeEach(() => {
-    return deleteDb();
-  });
+  beforeEach(() => SimpleDb.delete(INDEXEDDB_TEST_DATABASE));
 
   it('can install schema version 1', () => {
-    return initDb(1).then(db => {
+    return withDb(1, db => {
       expect(db.version).to.be.equal(1);
-      expect(getAllObjectStores(db)).to.deep.equal(V1_STORES);
+      expect(getAllObjectStores(db)).to.have.members(V1_STORES);
     });
   });
 
   it('can install schema version 2', () => {
-    return initDb(2).then(db => {
+    return withDb(2, db => {
       expect(db.version).to.be.equal(2);
-      expect(getAllObjectStores(db)).to.deep.equal(ALL_STORES);
+      expect(getAllObjectStores(db)).to.have.members(ALL_STORES);
     });
   });
 
   it('can upgrade from schema version 1 to 2', () => {
-    return initDb(1)
-      .then(() => initDb(2))
-      .then(db => {
+    return withDb(1, () => {}).then(() =>
+      withDb(2, db => {
         expect(db.version).to.be.equal(2);
-        expect(getAllObjectStores(db)).to.deep.equal(ALL_STORES);
-      });
+        expect(getAllObjectStores(db)).to.have.members(ALL_STORES);
+      })
+    );
   });
 });

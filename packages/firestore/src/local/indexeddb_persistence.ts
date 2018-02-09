@@ -28,44 +28,32 @@ import { IndexedDbRemoteDocumentCache } from './indexeddb_remote_document_cache'
 import {
   ALL_STORES,
   createOrUpgradeDb,
-  DbInstanceMetadata,
-  DbInstanceMetadataKey,
   DbOwner,
   DbOwnerKey,
   SCHEMA_VERSION
 } from './indexeddb_schema';
 import { LocalSerializer } from './local_serializer';
 import { MutationQueue } from './mutation_queue';
-import {
-  Persistence,
-  PersistenceTransaction,
-  PrimaryStateListener
-} from './persistence';
+import { Persistence } from './persistence';
 import { PersistencePromise } from './persistence_promise';
 import { QueryCache } from './query_cache';
 import { RemoteDocumentCache } from './remote_document_cache';
-import { SimpleDb, SimpleDbStore, SimpleDbTransaction } from './simple_db';
+import { SimpleDb, SimpleDbTransaction } from './simple_db';
 
 const LOG_TAG = 'IndexedDbPersistence';
 
-/**
- * Oldest acceptable age in milliseconds for client states read from IndexedDB.
- * Client state and owner leases that are older than 5 seconds are ignored.
- */
-const CLIENT_STATE_MAX_AGE_MS = 5000;
-/**
- * Refresh interval for the client state. We refresh the client state every four
- * seconds.
- */
-const CLIENT_STATE_REFRESH_INTERVAL_MS = 4000;
+/** If the owner lease is older than 5 seconds, try to take ownership. */
+const OWNER_LEASE_MAX_AGE_MS = 5000;
+/** Refresh the owner lease every 4 seconds while owner. */
+const OWNER_LEASE_REFRESH_INTERVAL_MS = 4000;
 
 /** LocalStorage location to indicate a zombied ownerId (see class comment). */
 const ZOMBIE_OWNER_LOCALSTORAGE_SUFFIX = 'zombiedOwnerId';
-/** Error when the owner lease is required but not available. */
+/** Error when the owner lease cannot be acquired or is lost. */
 const EXISTING_OWNER_ERROR_MSG =
-  'The current tab no longer acts as the primary tab and is not able to ' +
-  'perform the current operation. It might be necessary to refresh the ' +
-  'browser tab.';
+  'There is another tab open with offline' +
+  ' persistence enabled. Only one such tab is allowed at a time. The' +
+  ' other tab must be closed or persistence must be disabled.';
 const UNSUPPORTED_PLATFORM_ERROR_MSG =
   'This platform is either missing' +
   ' IndexedDB or is known to have an incomplete implementation. Offline' +
@@ -101,25 +89,16 @@ const UNSUPPORTED_PLATFORM_ERROR_MSG =
  * owner lease immediately regardless of the current lease timestamp.
  */
 export class IndexedDbPersistence implements Persistence {
-  setPrimaryStateListener(primaryStateListener: PrimaryStateListener) {
-    this.primaryStateListener = primaryStateListener;
-  }
   /**
    * The name of the main (and currently only) IndexedDB database. this name is
    * appended to the prefix provided to the IndexedDbPersistence constructor.
    */
   static MAIN_DATABASE = 'main';
 
-  private static EMPTY_PRIMARY_STATE_LISTENER: PrimaryStateListener = {
-    applyPrimaryState: () => {}
-  };
-
   private simpleDb: SimpleDb;
   private started: boolean;
-  private isPrimary = false;
   private dbName: string;
   private localStoragePrefix: string;
-  private primaryStateListener = IndexedDbPersistence.EMPTY_PRIMARY_STATE_LISTENER;
   private ownerId: string = this.generateOwnerId();
 
   /**
@@ -129,15 +108,13 @@ export class IndexedDbPersistence implements Persistence {
   private persistenceError: Error | null;
   /** The setInterval() handle tied to refreshing the owner lease. */
   // tslint:disable-next-line:no-any setTimeout() type differs on browser / node
-  private clientStateRefreshHandler: any;
+  private ownerLeaseRefreshHandle: any;
   /** Our window.unload handler, if registered. */
   private windowUnloadHandler: (() => void) | null;
 
-  private inForeground = false;
-
   private serializer: LocalSerializer;
 
-  constructor(prefix: string, serializer: JsonProtoSerializer, private readonly asyncQueue) {
+  constructor(prefix: string, serializer: JsonProtoSerializer) {
     this.dbName = prefix + IndexedDbPersistence.MAIN_DATABASE;
     this.serializer = new LocalSerializer(serializer);
     this.localStoragePrefix = prefix;
@@ -152,18 +129,6 @@ export class IndexedDbPersistence implements Persistence {
       return Promise.reject(this.persistenceError);
     }
 
-    if (typeof document !== undefined) {
-      document.addEventListener('visibilitychange', () => {
-        this.asyncQueue(() => {
-          const inForeground = document.visibilityState === 'visible';
-          if (inForeground !== this.inForeground) {
-            this.inForeground = inForeground;
-            this.refreshInstanceMetadata();
-          }
-        });
-      });
-    }
-
     assert(!this.started, 'IndexedDbPersistence double-started!');
     this.started = true;
 
@@ -171,29 +136,10 @@ export class IndexedDbPersistence implements Persistence {
       .then(db => {
         this.simpleDb = db;
       })
+      .then(() => this.tryAcquireOwnerLease())
       .then(() => {
-        this.refreshInstanceMetadata();
-        this.scheduleInstanceMetadataRefresh();
+        this.scheduleOwnerLeaseRefreshes();
         this.attachWindowUnloadHook();
-      });
-  }
-
-  private refreshInstanceMetadata(): void {
-    this.simpleDb
-      .runTransaction(
-        'readwrite',
-        [DbOwner.store, DbInstanceMetadata.store],
-        txn => {
-          return this.updateInstanceState(txn).next(() =>
-            this.tryAcquireOwnerLease(txn)
-          );
-        }
-      )
-      .then(isPrimary => {
-        if (isPrimary !== this.isPrimary) {
-          this.isPrimary = isPrimary;
-          this.primaryStateListener.applyPrimaryState(isPrimary);
-        }
       });
   }
 
@@ -201,7 +147,7 @@ export class IndexedDbPersistence implements Persistence {
     assert(this.started, 'IndexedDbPersistence shutdown without start!');
     this.started = false;
     this.detachWindowUnloadHook();
-    this.stopMetadataRefreshes();
+    this.stopOwnerLeaseRefreshes();
     return this.releaseOwnerLease().then(() => {
       this.simpleDb.close();
     });
@@ -221,10 +167,7 @@ export class IndexedDbPersistence implements Persistence {
 
   runTransaction<T>(
     action: string,
-    requireOwnerLease: boolean,
-    transactionOperation: (
-      transaction: PersistenceTransaction
-    ) => PersistencePromise<T>
+    operation: (transaction: SimpleDbTransaction) => PersistencePromise<T>
   ): Promise<T> {
     if (this.persistenceError) {
       return Promise.reject(this.persistenceError);
@@ -235,11 +178,8 @@ export class IndexedDbPersistence implements Persistence {
     // Do all transactions as readwrite against all object stores, since we
     // are the only reader/writer.
     return this.simpleDb.runTransaction('readwrite', ALL_STORES, txn => {
-      if (requireOwnerLease) {
-        return this.ensureOwnerLease(txn).next(() => transactionOperation(txn));
-      } else {
-        return transactionOperation(txn);
-      }
+      // Verify that we still have the owner lease as part of every transaction.
+      return this.ensureOwnerLease(txn).next(() => operation(txn));
     });
   }
 
@@ -268,80 +208,39 @@ export class IndexedDbPersistence implements Persistence {
   }
 
   /**
-   * Updates the InstanceMetadata store with the foreground state of this
-   * instance.
+   * Acquires the owner lease if there's no valid owner. Else returns a rejected
+   * promise.
    */
-  private updateInstanceState(
-    txn: SimpleDbTransaction
-  ): PersistencePromise<void> {
-    const instanceMetadataStore = txn.store<
-      DbInstanceMetadataKey,
-      DbInstanceMetadata
-    >(DbInstanceMetadata.store);
-    instanceMetadataStore.put(
-      new DbInstanceMetadata(this.ownerId, Date.now(), this.inForeground)
-    );
-    return PersistencePromise.resolve();
-  }
-
-  /**
-   * Tries to acquire and refresh the owner lease if there's no valid owner.
-   * Returns whether the instance is the current owner.
-   */
-  private tryAcquireOwnerLease(
-    txn: SimpleDbTransaction
-  ): PersistencePromise<boolean> {
-    const ownerStore = txn.store<DbOwnerKey, DbOwner>(DbOwner.store);
-    return ownerStore.get('owner').next(dbOwner => {
-      const currentOwner = this.extractCurrentOwner(dbOwner);
-      if (currentOwner === null && this.canBecomeOwner(txn)) {
-        const newDbOwner = new DbOwner(this.ownerId, Date.now());
-        log.debug(
-          LOG_TAG,
-          'No valid owner. Acquiring owner lease. Current owner:',
-          dbOwner,
-          'New owner:',
-          newDbOwner
-        );
-        return ownerStore.put('owner', newDbOwner).next(() => true);
-      } else if (currentOwner === this.ownerId) {
-        // Refresh the owner lease
-        const newDbOwner = new DbOwner(this.ownerId, Date.now());
-        return ownerStore.put('owner', newDbOwner).next(() => true);
-      } else {
-        return PersistencePromise.resolve(false);
-      }
-    });
-  }
-
-  /**
-   * Checks is this instance is eligible for an owner lease based on its
-   * foreground state and the foreground state of all active instances. An
-   * instance can become an owner if it is in the foreground or if all active
-   * instances are in the background.
-   */
-  private canBecomeOwner(
-    txn: SimpleDbTransaction
-  ): PersistencePromise<boolean> {
-    if (this.inForeground) {
-      return PersistencePromise.resolve(true);
-    }
-
-    let canBecomeOwner = true;
-
-    return instanceMetadataStore(txn)
-      .iterate((key, value, control) => {
-        if (value.instanceKey !== value.instanceKey) {
-          if (
-            this.isRecentlyUpdated(value.updateTimeMs) &&
-            value.isInForeground
-          ) {
-            canBecomeOwner = false;
-            control.done();
-          }
+  private tryAcquireOwnerLease(): Promise<void> {
+    // NOTE: Don't use this.runTransaction, since it requires us to already
+    // have the lease.
+    return this.simpleDb.runTransaction('readwrite', [DbOwner.store], txn => {
+      const store = txn.store<DbOwnerKey, DbOwner>(DbOwner.store);
+      return store.get('owner').next(dbOwner => {
+        if (!this.validOwner(dbOwner)) {
+          const newDbOwner = new DbOwner(this.ownerId, Date.now());
+          log.debug(
+            LOG_TAG,
+            'No valid owner. Acquiring owner lease. Current owner:',
+            dbOwner,
+            'New owner:',
+            newDbOwner
+          );
+          return store.put('owner', newDbOwner);
+        } else {
+          log.debug(
+            LOG_TAG,
+            'Valid owner already. Failing. Current owner:',
+            dbOwner
+          );
+          this.persistenceError = new FirestoreError(
+            Code.FAILED_PRECONDITION,
+            EXISTING_OWNER_ERROR_MSG
+          );
+          return PersistencePromise.reject<void>(this.persistenceError);
         }
-      })
-      .next(() => canBecomeOwner);
+      });
+    });
   }
 
   /** Checks the owner lease and deletes it if we are the current owner. */
@@ -353,7 +252,6 @@ export class IndexedDbPersistence implements Persistence {
       return store.get('owner').next(dbOwner => {
         if (dbOwner !== null && dbOwner.ownerId === this.ownerId) {
           log.debug(LOG_TAG, 'Releasing owner lease.');
-          this.primaryStateListener.applyPrimaryState(false);
           return store.delete('owner');
         } else {
           return PersistencePromise.resolve();
@@ -382,21 +280,6 @@ export class IndexedDbPersistence implements Persistence {
     });
   }
 
-  /** Verifies that that `updateTimeMs` is within the last 5 seconds. */
-  private isRecentlyUpdated(updateTimeMs: number): boolean {
-    const now = Date.now();
-    const minAcceptable = now - CLIENT_STATE_MAX_AGE_MS;
-    const maxAcceptable = now;
-    if (updateTimeMs < minAcceptable) {
-      return false; // owner lease has expired.
-    } else if (updateTimeMs > maxAcceptable) {
-      log.error('Detected an update time that is in the future.');
-      return false;
-    }
-
-    return true;
-  }
-
   /**
    * Returns true if the provided owner exists, has a recent timestamp, and
    * isn't zombied.
@@ -404,15 +287,24 @@ export class IndexedDbPersistence implements Persistence {
    * NOTE: To determine if the owner is zombied, this method reads from
    * LocalStorage which could be mildly expensive.
    */
-  private extractCurrentOwner(dbOwner: DbOwner): string | null {
+  private validOwner(dbOwner: DbOwner | null): boolean {
+    const now = Date.now();
+    const minAcceptable = now - OWNER_LEASE_MAX_AGE_MS;
+    const maxAcceptable = now;
     if (dbOwner === null) {
-      return null; // no owner.
-    } else if (!this.isRecentlyUpdated(dbOwner.leaseTimestampMs)) {
-      return null; // owner lease has expired.
+      return false; // no owner.
+    } else if (dbOwner.leaseTimestampMs < minAcceptable) {
+      return false; // owner lease has expired.
+    } else if (dbOwner.leaseTimestampMs > maxAcceptable) {
+      log.error(
+        'Persistence owner-lease is in the future. Discarding.',
+        dbOwner
+      );
+      return false;
     } else if (dbOwner.ownerId === this.getZombiedOwnerId()) {
-      return null; // owner's tab closed.
+      return false; // owner's tab closed.
     } else {
-      return dbOwner.ownerId;
+      return true;
     }
   }
 
@@ -420,19 +312,31 @@ export class IndexedDbPersistence implements Persistence {
    * Schedules a recurring timer to update the owner lease timestamp to prevent
    * other tabs from taking the lease.
    */
-  private scheduleInstanceMetadataRefresh(): void {
+  private scheduleOwnerLeaseRefreshes(): void {
     // NOTE: This doesn't need to be scheduled on the async queue and doing so
     // would increase the chances of us not refreshing on time if the queue is
     // backed up for some reason.
-    this.clientStateRefreshHandler = setInterval(() => {
-      this.refreshInstanceMetadata();
-    }, CLIENT_STATE_REFRESH_INTERVAL_MS);
+    this.ownerLeaseRefreshHandle = setInterval(() => {
+      const txResult = this.runTransaction('Refresh owner timestamp', txn => {
+        // NOTE: We don't need to validate the current owner contents, since
+        // runTransaction does that automatically.
+        const store = txn.store<DbOwnerKey, DbOwner>(DbOwner.store);
+        return store.put('owner', new DbOwner(this.ownerId, Date.now()));
+      });
+
+      txResult.catch(reason => {
+        // Probably means we lost the lease. Report the error and stop trying to
+        // refresh the lease.
+        log.error(reason);
+        this.stopOwnerLeaseRefreshes();
+      });
+    }, OWNER_LEASE_REFRESH_INTERVAL_MS);
   }
 
-  private stopMetadataRefreshes(): void {
-    if (this.clientStateRefreshHandler) {
-      clearInterval(this.clientStateRefreshHandler);
-      this.clientStateRefreshHandler = null;
+  private stopOwnerLeaseRefreshes(): void {
+    if (this.ownerLeaseRefreshHandle) {
+      clearInterval(this.ownerLeaseRefreshHandle);
+      this.ownerLeaseRefreshHandle = null;
     }
   }
 
@@ -511,15 +415,4 @@ export class IndexedDbPersistence implements Persistence {
     // For convenience, just use an AutoId.
     return AutoId.newId();
   }
-}
-
-/**
- * Helper to get a typed SimpleDbStore for the instance metadata object store.
- */
-function instanceMetadataStore(
-  txn: SimpleDbTransaction
-): SimpleDbStore<DbInstanceMetadataKey, DbInstanceMetadata> {
-  return txn.store<DbInstanceMetadataKey, DbInstanceMetadata>(
-    DbInstanceMetadata.store
-  );
 }
