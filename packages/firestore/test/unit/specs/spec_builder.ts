@@ -195,20 +195,20 @@ export class SpecBuilder {
   }
 
   clientBecomesHidden(): SpecBuilder {
-        this.nextStep();
-        this.currentStep = {
-          changeClientState: { visibility: 'background' }
-        };
-        return this;
-      }
+    this.nextStep();
+    this.currentStep = {
+      changeClientState: { visibility: 'background' }
+    };
+    return this;
+  }
 
   clientBecomesVisible(): SpecBuilder {
-        this.nextStep();
-       this.currentStep = {
-         changeClientState: { visibility: 'foreground' }
-        };
-        return this;
-      }
+    this.nextStep();
+    this.currentStep = {
+      changeClientState: { visibility: 'foreground' }
+    };
+    return this;
+  }
 
   changeUser(uid: string | null): SpecBuilder {
     this.nextStep();
@@ -586,12 +586,12 @@ export class SpecBuilder {
   }
 
   expectPrimaryState(isPrimary: boolean) {
-       this.assertStep('Visibility State expectation requires previous step');
-        const currentStep = this.currentStep!;
-        currentStep.stateExpect = currentStep.stateExpect || {};
-        currentStep.stateExpect.isPrimary = isPrimary;
-       return this;
-      }
+    this.assertStep('Visibility State expectation requires previous step');
+    const currentStep = this.currentStep!;
+    currentStep.stateExpect = currentStep.stateExpect || {};
+    currentStep.stateExpect.isPrimary = isPrimary;
+    return this;
+  }
 
   private static queryToSpec(query: Query): SpecQuery {
     // TODO(dimond): full query support

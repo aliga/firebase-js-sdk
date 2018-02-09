@@ -798,10 +798,10 @@ abstract class TestRunner {
 
   private doChangeClientState(user: string | null): Promise<void> {
     this.user = new User(user);
-    return this.queue.schedule(() =>
-        document.dispatchEvent(
-            ctx.pubWin.document, domevents.Event.VISIBILITYCHANG)
-        this.persistence.runTransaction()
+    return this.queue.schedule(() => {
+          document.dispatchEvent(new Event('visibilitychange'));
+          return Promise.resolve();
+    }
     );
   }
 

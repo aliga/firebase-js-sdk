@@ -42,8 +42,8 @@ const KNOWN_TAGS = [
 ];
 
 // Filters out mutil-tab tests if persistence is not enabled.
-    const MULTI_TAB_TEST_FILTER = (tags: string[], persistenceEnabled: boolean) =>
-      tags.indexOf(MULTI_TAB_TAG) !== -1 && persistenceEnabled;
+const MULTI_TAB_TEST_FILTER = (tags: string[], persistenceEnabled: boolean) =>
+  tags.indexOf(MULTI_TAB_TAG) !== -1 && persistenceEnabled;
 
 const WEB_SPEC_TEST_FILTER = (tags: string[]) =>
   tags.indexOf(NO_WEB_TAG) === -1;
@@ -77,18 +77,18 @@ export function setSpecJSONHandler(writer: (json: string) => void) {
 }
 
 /** Gets the test runner based on the specified tags. */
-function getTestRunner(tags, persistenceEnabled) :Function {
-      if (
-            !MULTI_TAB_TEST_FILTER(tags, persistenceEnabled) || !WEB_SPEC_TEST_FILTER(tags)
-
-      ) {
-          return it.skip;
-       } else if (tags.indexOf(EXCLUSIVE_TAG) >= 0) {
-          return it.only;
-        } else {
-          return it;
-        }
-    }
+function getTestRunner(tags, persistenceEnabled): Function {
+  if (
+    !MULTI_TAB_TEST_FILTER(tags, persistenceEnabled) ||
+    !WEB_SPEC_TEST_FILTER(tags)
+  ) {
+    return it.skip;
+  } else if (tags.indexOf(EXCLUSIVE_TAG) >= 0) {
+    return it.only;
+  } else {
+    return it;
+  }
+}
 
 /**
  * Like it(), but for spec tests.
